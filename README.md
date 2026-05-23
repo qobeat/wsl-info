@@ -1,4 +1,5 @@
-# collect-status.sh v2
+# scripts
+## collect-status.sh
 
 Install:
 
