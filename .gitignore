@@ -1,0 +1,33 @@
+# git
+.git/
+
+# archives / artifacts
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# logs / temp / cache / locks
+*.log
+*.tmp
+.tmp/
+tmp/
+logs/
+*.cache
+.cache/
+.DS_Store
+*.lock
+
+# react
+.vite/
+node_modules/
+dist/
+
+# editor
+.vscode/*
+!.vscode/tasks.json
+!.vscode/extensions.json
+
+
+# OS / tooling
+Thumbs.db
