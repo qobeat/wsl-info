@@ -23,7 +23,7 @@ DEFAULTS:
 
 NOTES:
   WSL-specific and Windows-side checks live in wsl2-shell.sh and wsl2-powershell.sh.
-  No sudo is used. apt-get check is run only with passwordless sudo.
+  No sudo is used. apt-get check is run only when the collector itself is run as root.
 HELP
 }
 
@@ -85,9 +85,9 @@ fi
 wi_run_capture "06-performance-gpu.txt" 'vmstat 1 2; echo; command -v iostat >/dev/null && timeout 3 iostat -xz 1 2 || echo "iostat not available or timed out"; echo; wi_nvidia_smi'
 wi_run_capture "08-services-events.txt" 'systemctl --failed --no-pager 2>/dev/null || true; echo; journalctl -p 3 --since "5 minutes ago" --no-pager -o short-iso 2>/dev/null | tail -300; echo; journalctl -k --since "5 minutes ago" --no-pager -o short-iso 2>/dev/null | tail -300'
 if [[ "$MODE" == "full" ]]; then
-  wi_run_capture "07-package-health.txt" 'dpkg --audit; echo; if sudo -n true 2>/dev/null; then timeout 8 sudo -n apt-get check; else echo "apt-get check skipped: no passwordless sudo"; fi; echo; echo "dpkg -V sample:"; timeout 10 dpkg -V 2>&1 | head -300 || true; if command -v debsums >/dev/null; then echo; echo "debsums sample:"; timeout 10 debsums -s 2>&1 | head -300; fi'
+  wi_run_capture "07-package-health.txt" 'dpkg --audit; echo; if [ "$(id -u)" -eq 0 ]; then timeout 8 apt-get check; else echo "apt-get check skipped: collector does not invoke sudo"; fi; echo; echo "dpkg -V sample:"; timeout 10 dpkg -V 2>&1 | head -300 || true; if command -v debsums >/dev/null; then echo; echo "debsums sample:"; timeout 10 debsums -s 2>&1 | head -300; fi'
 else
-  wi_run_capture "07-package-health.txt" 'dpkg --audit; echo; if sudo -n true 2>/dev/null; then timeout 3 sudo -n apt-get check; else echo "apt-get check skipped: no passwordless sudo"; fi; echo; echo "dpkg -V/debsums skipped in brief mode"'
+  wi_run_capture "07-package-health.txt" 'dpkg --audit; echo; if [ "$(id -u)" -eq 0 ]; then timeout 3 apt-get check; else echo "apt-get check skipped: collector does not invoke sudo"; fi; echo; echo "dpkg -V/debsums skipped in brief mode"'
 fi
 
 if [[ "$MODE" == "full" ]]; then
