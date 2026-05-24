@@ -10,6 +10,20 @@ wi_die() {
   exit 2
 }
 
+wi_now_ms() {
+  date +%s%3N
+}
+
+wi_human_time() {
+  date '+%F %T'
+}
+
+wi_elapsed_seconds() {
+  local start_ms="$1"
+  local end_ms="${2:-$(wi_now_ms)}"
+  awk -v start="$start_ms" -v end="$end_ms" 'BEGIN { printf "%.1f", (end - start) / 1000 }'
+}
+
 wi_default_timeout() {
   case "${1:-brief}" in
     full) echo 60 ;;
@@ -35,6 +49,7 @@ wi_init_run() {
   WI_MODE="$3"
   WI_TIMEOUT="$4"
   WI_START_EPOCH="$(date +%s)"
+  WI_START_MS="$(wi_now_ms)"
   WI_START_ISO="$(date -Is)"
   WI_TIMED_OUT=0
   WI_FINISHED=0
@@ -53,10 +68,9 @@ wi_finish_run() {
   [[ "${WI_FINISHED:-0}" -eq 1 ]] && return 0
   WI_FINISHED=1
 
-  local end_epoch end_iso duration timeout_state
-  end_epoch="$(date +%s)"
+  local end_iso duration timeout_state
   end_iso="$(date -Is)"
-  duration=$((end_epoch - WI_START_EPOCH))
+  duration="$(wi_elapsed_seconds "$WI_START_MS")"
 
   timeout_state="no"
   [[ "${WI_TIMED_OUT:-0}" -eq 1 ]] && timeout_state="yes"
@@ -89,9 +103,9 @@ wi_run_capture() {
   shift
   local command="$*"
   local target="$WI_OUT/$file"
-  local start_epoch start_iso end_epoch end_iso duration remaining rc
+  local start_ms start_iso end_iso duration remaining rc
 
-  start_epoch="$(date +%s)"
+  start_ms="$(wi_now_ms)"
   start_iso="$(date -Is)"
   rc=0
 
@@ -119,9 +133,8 @@ wi_run_capture() {
       rc=$?
     fi
 
-    end_epoch="$(date +%s)"
     end_iso="$(date -Is)"
-    duration=$((end_epoch - start_epoch))
+    duration="$(wi_elapsed_seconds "$start_ms")"
     echo
     echo "### end: $end_iso"
     echo "### duration_seconds: $duration"
@@ -179,9 +192,9 @@ wi_download_capture() {
   local url="$2"
   local out="$3"
   local target="$WI_OUT/$file"
-  local start_epoch start_iso end_epoch end_iso duration remaining rc
+  local start_ms start_iso end_iso duration remaining rc
 
-  start_epoch="$(date +%s)"
+  start_ms="$(wi_now_ms)"
   start_iso="$(date -Is)"
   rc=0
 
@@ -210,9 +223,8 @@ wi_download_capture() {
       rc=$?
     fi
 
-    end_epoch="$(date +%s)"
     end_iso="$(date -Is)"
-    duration=$((end_epoch - start_epoch))
+    duration="$(wi_elapsed_seconds "$start_ms")"
     echo
     echo "### end: $end_iso"
     echo "### duration_seconds: $duration"

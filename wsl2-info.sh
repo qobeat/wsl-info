@@ -25,8 +25,8 @@ MODES:
   --full    Brief + expanded event/package/systemd/WSL details.
   --network Focus on WSL2 Linux-side and Windows-side network diagnostics.
   --ollama  Focus on Ollama GPU/runtime visibility.
-  --error   Print all journal errors at the end of the screen report.
-  --all     Full collection plus network, Ollama, and all error output.
+  --error   Print grouped journal error classes at the end of the screen report.
+  --all     Full collection plus network, Ollama, and grouped error output.
 
 TIMEOUT:
   Each child collector gets its own runtime budget.
@@ -102,7 +102,7 @@ fi
 ZIPFILE="$ROOT/wsl2-info-$PROFILE-$DATE.zip"
 mkdir -p "$ROOT" "$OUT"
 
-GLUE_START_EPOCH="$(date +%s)"
+GLUE_START_MS="$(wi_now_ms)"
 GLUE_START_ISO="$(date -Is)"
 {
   echo "script: wsl2-info.sh"
@@ -118,11 +118,9 @@ finish_glue_run() {
   [[ "${GLUE_FINISHED:-0}" -eq 1 ]] && return 0
   GLUE_FINISHED=1
 
-  local end_epoch
-  end_epoch="$(date +%s)"
   {
     echo "end_time: $(date -Is)"
-    echo "duration_seconds: $((end_epoch - GLUE_START_EPOCH))"
+    echo "duration_seconds: $(wi_elapsed_seconds "$GLUE_START_MS")"
   } >>"$OUT/00-run-metadata.txt"
 }
 
@@ -136,18 +134,21 @@ run_child() {
   local child_out="$3"
   shift 3
 
-  echo "Collecting: $label"
-  local start_epoch end_epoch rc
-  start_epoch="$(date +%s)"
+  local start_ms rc elapsed status
+  start_ms="$(wi_now_ms)"
+  printf '[%s] Collecting: %s ... ' "$(wi_human_time)" "$label"
   "$script" --"$MODE" --timeout "$TIMEOUT_VALUE" --output-dir "$child_out" "$@"
   rc=$?
-  end_epoch="$(date +%s)"
+  elapsed="$(wi_elapsed_seconds "$start_ms")"
+  status="done"
+  [[ "$rc" -ne 0 ]] && status="failed (exit $rc)"
+  printf '%s, elapsed %s s\n' "$status" "$elapsed"
   {
     echo "child: $label"
     echo "script: $script"
     echo "output_dir: $child_out"
     echo "exit: $rc"
-    echo "duration_seconds: $((end_epoch - start_epoch))"
+    echo "duration_seconds: $elapsed"
     echo
   } >>"$OUT/child-runs.txt"
   return 0
@@ -218,7 +219,13 @@ kv_lookup() {
 human_bytes() {
   local bytes="$1"
   if wi_have numfmt; then
-    numfmt --to=iec-i --suffix=B --format='%.1f' "$bytes" 2>/dev/null || echo "${bytes}B"
+    local formatted
+    formatted="$(numfmt --to=iec-i --suffix=B --format='%.1f' "$bytes" 2>/dev/null || true)"
+    if [[ -n "$formatted" ]]; then
+      printf '%s\n' "$formatted" | sed -E 's/([0-9])([KMGTPE]iB)$/\1 \2/'
+    else
+      echo "${bytes}B"
+    fi
   else
     awk -v b="$bytes" 'BEGIN { printf "%.1f GiB", b / 1024 / 1024 / 1024 }'
   fi
@@ -306,10 +313,10 @@ gpu_memory_for_pid() {
   local pid="$1"
   if wi_have nvidia-smi; then
     nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2>/dev/null |
-      awk -F, -v pid="$pid" '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); gsub(/^[ \t]+|[ \t]+$/, "", $2); if ($1 == pid) { print $2 "MiB"; exit } }'
+      awk -F, -v pid="$pid" '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); gsub(/^[ \t]+|[ \t]+$/, "", $2); if ($1 == pid && $2 ~ /^[0-9]+$/) { print $2 " MiB"; exit } }'
   elif [[ -x /usr/lib/wsl/lib/nvidia-smi ]]; then
     /usr/lib/wsl/lib/nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2>/dev/null |
-      awk -F, -v pid="$pid" '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); gsub(/^[ \t]+|[ \t]+$/, "", $2); if ($1 == pid) { print $2 "MiB"; exit } }'
+      awk -F, -v pid="$pid" '{ gsub(/^[ \t]+|[ \t]+$/, "", $1); gsub(/^[ \t]+|[ \t]+$/, "", $2); if ($1 == pid && $2 ~ /^[0-9]+$/) { print $2 " MiB"; exit } }'
   fi
 }
 
@@ -405,12 +412,12 @@ render_ollama_gpu_info() {
   echo "GPU snapshot:"
   if wi_have nvidia-smi; then
     nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader 2>/dev/null |
-      awk -F, '{ printf "GPU: %s | memory:%s/%s | util:%s | temp:%sC\n", $1, $2, $3, $4, $5 }'
+      awk -F, '{ for (i=1; i<=5; i++) gsub(/^[ \t]+|[ \t]+$/, "", $i); printf "GPU: %s | memory: %s / %s | util: %s | temp: %sC\n", $1, $2, $3, $4, $5 }'
     nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null |
       awk -F, 'BEGIN { printed=0 } /ollama/ { gsub(/^[ \t]+|[ \t]+$/, "", $1); gsub(/^[ \t]+|[ \t]+$/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $3); printf "Ollama GPU process: pid=%s memory=%s name=%s\n", $1, $3, $2; printed=1 } END { if (!printed) print "Ollama GPU process: none visible" }'
   elif [[ -x /usr/lib/wsl/lib/nvidia-smi ]]; then
     /usr/lib/wsl/lib/nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader 2>/dev/null |
-      awk -F, '{ printf "GPU: %s | memory:%s/%s | util:%s | temp:%sC\n", $1, $2, $3, $4, $5 }'
+      awk -F, '{ for (i=1; i<=5; i++) gsub(/^[ \t]+|[ \t]+$/, "", $i); printf "GPU: %s | memory: %s / %s | util: %s | temp: %sC\n", $1, $2, $3, $4, $5 }'
     /usr/lib/wsl/lib/nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null |
       awk -F, 'BEGIN { printed=0 } /ollama/ { gsub(/^[ \t]+|[ \t]+$/, "", $1); gsub(/^[ \t]+|[ \t]+$/, "", $2); gsub(/^[ \t]+|[ \t]+$/, "", $3); printf "Ollama GPU process: pid=%s memory=%s name=%s\n", $1, $3, $2; printed=1 } END { if (!printed) print "Ollama GPU process: none visible" }'
   else
@@ -454,18 +461,90 @@ render_critical_errors() {
 
 render_all_errors() {
   [[ "$DO_ERROR" -eq 1 ]] || return 0
-  section_title "ALL ERRORS"
-  echo "journal errors since boot:"
-  journalctl -q -p 3 -b --no-pager -o short-iso 2>/dev/null || echo "journal unavailable"
-  echo
-  echo "kernel errors since boot:"
-  journalctl -q -k -p 3 -b --no-pager -o short-iso 2>/dev/null || echo "kernel journal unavailable"
+  section_title "ERROR CLASSES SINCE BOOT"
+
+  local errors
+  errors="$(journalctl -q -p 3 -b --no-pager -o short-iso 2>/dev/null || true)"
+  if [[ -z "$errors" ]]; then
+    echo "none found, or journal unavailable"
+    return 0
+  fi
+
+  printf '%-34s %6s  %s\n' "CLASS" "COUNT" "LATEST"
+  printf '%-34s %6s  %s\n' "-----" "-----" "------"
+  printf '%s\n' "$errors" |
+    awk '
+      BEGIN {
+        order[1] = "WSL GPU/dxg ioctl"
+        order[2] = "WSL DNS resolver"
+        order[3] = "WSL init/systemd startup"
+        order[4] = "Host firmware/PCI"
+        order[5] = "Other WSL errors"
+        order[6] = "Other kernel errors"
+        order[7] = "Other journal errors"
+      }
+      function classify(line) {
+        if (line ~ /misc dxg: dxgk:/) return "WSL GPU/dxg ioctl"
+        if (line ~ /CheckConnection: getaddrinfo/) return "WSL DNS resolver"
+        if (line ~ /WaitForBootProcess|\/sbin\/init failed/) return "WSL init/systemd startup"
+        if (line ~ /\[Firmware Bug\]|PCI: Fatal/) return "Host firmware/PCI"
+        if (line ~ / WSL \(/) return "Other WSL errors"
+        if (line ~ / kernel:/) return "Other kernel errors"
+        return "Other journal errors"
+      }
+      function trim_message(line) {
+        sub(/^[0-9TZ:+.-]+[[:space:]]+[^[:space:]]+[[:space:]]+/, "", line)
+        return line
+      }
+      function remember(class, line) {
+        message_count[class, line]++
+        if (seen[class, line]) return
+        seen[class, line] = 1
+        sample[class, 1] = sample[class, 2]
+        sample[class, 2] = sample[class, 3]
+        sample[class, 3] = line
+      }
+      function emit(class) {
+        if (!(class in count)) return
+        printf "%-34s %6d  %s\n", class, count[class], latest[class]
+      }
+      {
+        class = classify($0)
+        count[class]++
+        latest[class] = $1
+        remember(class, trim_message($0))
+      }
+      END {
+        emit("WSL GPU/dxg ioctl")
+        emit("WSL DNS resolver")
+        emit("WSL init/systemd startup")
+        emit("Host firmware/PCI")
+        emit("Other WSL errors")
+        emit("Other kernel errors")
+        emit("Other journal errors")
+        print ""
+        print "Examples:"
+        for (i = 1; i <= 7; i++) {
+          class = order[i]
+          if (!(class in count)) continue
+          print class ":"
+          for (j = 1; j <= 3; j++) {
+            if (sample[class, j] != "") {
+              message = sample[class, j]
+              printf "  - [%dx] %s\n", message_count[class, message], message
+            }
+          }
+        }
+      }
+    '
 }
 
 render_report() {
   echo "=== WSL2 INFO REPORT ==="
   printf '%-14s %s\n' "profile:" "$PROFILE"
-  printf '%-14s %s\n' "time:" "$(date -Is)"
+  printf '%-14s %s\n' "started:" "$GLUE_START_ISO"
+  printf '%-14s %s\n' "finished:" "$(date -Is)"
+  printf '%-14s %s s\n' "elapsed:" "$(wi_elapsed_seconds "$GLUE_START_MS")"
   printf '%-14s %s\n' "timeout:" "${TIMEOUT_VALUE}s per collector"
 
   case "$FOCUS" in

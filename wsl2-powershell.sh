@@ -97,4 +97,6 @@ if [[ "$DO_NET" -eq 1 ]]; then
 fi
 
 wi_download_capture "90-download-collect-wsl-logs.txt" "$MS_PS" "$WI_OUT/collect-wsl-logs.ps1"
-[[ "$DO_NET" -eq 1 ]] && wi_download_capture "91-download-wsl-wprp.txt" "$MS_WPRP" "$WI_OUT/wsl.wprp"
+if [[ "$DO_NET" -eq 1 ]]; then
+  wi_download_capture "91-download-wsl-wprp.txt" "$MS_WPRP" "$WI_OUT/wsl.wprp"
+fi

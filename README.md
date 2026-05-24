@@ -38,7 +38,7 @@ Run focused network or Ollama views:
 ./wsl2-info.sh --ollama
 ```
 
-Collect everything and print all errors at the end:
+Collect everything and print grouped error classes at the end:
 
 ```bash
 ./wsl2-info.sh --all
@@ -92,7 +92,7 @@ By default, output is written below:
 ~/tmp/wsl2-info-<profile>-<yyyy-mm-dd>.zip
 ```
 
-The screen report is sectioned. Normal brief/full reports show `HARDWARE INFO`, `WSL2 INFO`, compact high-CPU processes, package health, collector runtimes, artifacts, and critical errors at the end. Focused `--network` and `--ollama` runs show only their relevant diagnostics plus runtimes, artifacts, and the final error section.
+The screen report is sectioned. Each collector progress line includes its start timestamp and elapsed seconds, and the report header includes the overall collection start, finish, and elapsed time. Normal brief/full reports show `HARDWARE INFO`, `WSL2 INFO`, compact high-CPU processes, package health, collector runtimes, artifacts, and critical errors at the end. Focused `--network` and `--ollama` runs show only their relevant diagnostics plus runtimes, artifacts, and the final error section.
 
 ### `ubuntu-health.sh`
 
@@ -254,7 +254,7 @@ With `--brief` or `--full`, this adds Ollama GPU visibility to the normal report
 
 ### Error Output
 
-Critical errors are always printed as the last normal section of the report. Use `--error` to print all journal errors since boot at the very end:
+Critical errors are always printed as the last normal section of the report. Use `--error` to print grouped journal error classes since boot at the very end:
 
 ```bash
 ./wsl2-info.sh --brief --error
